@@ -1,0 +1,285 @@
+---
+title: "Assignment 9: Relational Database Creation & Loading"
+author: "Joshua Conte"
+date: "July 9, 2017"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#Introduction on Databases
+
+A database needs to be a structured system, with rules.  A database needs to be planned out before building with a purpose.  To understand the plan or statement of purpose, there are two questions that I need to address:
+
+First, what's the point? What is this database for?
+
+For this assignment, the point of the database is to add data of planes that hit birds and the weather conditions that it happened in, the date, the airline, aircraft and airport.  I already have a database with this information and I will need to transfer some of the information to a new database.
+
+##What is the problem? 
+For this assignment, I have some bird strike information that I need to store.  I need to make sure the database design is normalized (at least 3NF) and has minimal redundancy.
+
+##What entities and attributes are needed?
+Data that needs to be stored:
+*Record ID
+*Conditions: Precipitation
+*Aircraft: Type
+*Aircraft: Airline/Operator
+*Airport: Name
+*Aircraft: Make/Model
+*FlightDate
+
+##What should the data be stored as?
+Record ID needs to be stored as an integer; Conditions: Precipitation, Aircraft: Type
+Aircraft: Airline/Operator, Airport: Name, Aircraft: Make/Model needs to be stored as character; FlightDate needs to be stored as a date.
+
+##What is the unique value or primary key?
+Record ID needs to be unique (the primary key), the others are not unique.
+
+##What are the relationships?
+For this assignment, only the Record ID is unique, so this is a one to many database.  However, I will need to split up "Conditions: Precipitation" column into a new table (a Junction or linking table) to make a many to many relationship.  This column was originally made with comma separated values when it should have been split up to have only one value: rain, snow, fog, or none.
+
+##Database Normalization
+This database needs to be a Third Normal Form (3NF).  The entire point of normalization is to make the database easier, and more reliable to work with. This will create a few new tables as part of the process. But the end result is the database will contain a minimum of duplicate or redundant data. It'll contain data that's easy to get to, easier to edit and maintain.
+
+Before the date becomes 3NF I need to start at First Normal Form (1NF) and move to Second Normal Form (2NF). First being about having no repeating values and no repeating groups. Second Normal Form, no values based on just part of, say half of, a composite key. And Third Normal Form. None of the non-key values should be based on, or determined from, another non-key value. Taking the database design through these three steps will vastly improve the quality of the data. I'm going to say that one more time.
+
+#Coding Databases in R
+##Setting up R
+First I configure R studio with the parameters below:
+```{r Configure RStudio}
+# clears the console in RStudio
+cat("\014") 
+
+# clears environment
+rm(list = ls())  
+
+# Set working directory
+setwd("C:/R/DA5020/Week_09/")
+
+# Load required packages
+require(RSQLite)
+require(sqldf)
+require(lubridate)
+library(tidyr)
+library(dplyr)
+```
+
+##Get the data
+Then I load in the data as a data frame below:
+```{r Importing data}
+# Load the data
+# I also added NA to all blank cells to make it easier to analyze and
+# stringsAsFactors = FALSE so I can remove levels from the data.
+if (!exists("bird.strikes")) {
+  bird.strikes <-
+    read.csv(
+      unz("Bird Strikes.zip", "Bird Strikes.csv"),
+      header = TRUE,
+      na.strings = c("", "NA"),
+      stringsAsFactors = FALSE,
+      sep = ","
+    )
+}
+```
+
+##Make a database
+Next I will create a new, empty SQLite database where I can store the bird strike data. SQLite has a rather simple data storage mechanism, all data for a database is installed within a single file.  The name of this file must be specified when the database is created, and a connection to this database is returned and used in subsequent commands to access and manipulate the data and data structures within the database.
+```{r Importing data using RSQLite}
+birdstrike <- dbConnect(SQLite(),'birdstrike.db')
+```
+
+This command creates a file named "birdstike.db". 
+
+Next I will take the information needed from the bird strike data and put it into different data frames to make different tables. I need to do this so the database will have the correct relationships in 3NF form. The primary key for the tables is Record ID and the remaining are not unique.
+```{r Make table 1}
+# Create a table.  I created the table as described above in the introduction to 
+# databse section.  I defined the primary key and specified the data types.
+dbSendQuery(
+  birdstrike,
+  "CREATE TABLE table1 (
+  RecordID INTEGER,
+  AircraftType TEXT,
+  AircraftAirlineOperator TEXT,
+  AirportName TEXT,
+  AircraftMakeModel TEXT,
+  FlightDate DATETIME,
+  PRIMARY KEY (RecordID))"
+  )
+
+# The code below works by first listing all column data I want to use, then  
+# processing each column at a time to be written to the database in the required 
+# format.
+RecordID <- bird.strikes$Record.ID
+AircraftType <- bird.strikes$Aircraft..Type
+AircraftAirlineOperator <-
+  bird.strikes$Aircraft..Airline.Operator
+AirportName <- bird.strikes$Airport..Name
+AircraftMakeModel <- bird.strikes$Aircraft..Make.Model
+FlightDate <- bird.strikes$FlightDate
+
+# I put the data above into a data frame called data
+data = cbind.data.frame(
+  RecordID,
+  AircraftType,
+  AircraftAirlineOperator,
+  AirportName,
+  AircraftMakeModel,
+  FlightDate
+)
+
+# This puts the data frame into the table and into the database
+dbWriteTable(
+  conn = birdstrike,
+  name = "table1",
+  data,
+  append = T,
+  row.names = F
+)
+```
+
+To have proper relationships, a second table is needed. For the second table, I need to break up "Conditions: Precipitation without having it comma separated. Below is an easier way of putting data frames into a database:
+```{r Make table 2}
+# This section requires tidyr and dplyr
+
+makeTable2 <- function(x) {
+  # This function will take Record ID and Conditions..Precipitation and split up the
+  # comma separated values and put it with the proper Record ID.
+  
+  # This puts the required info into a data frame
+  df <- data.frame(x$Record.ID,
+                   x$Conditions..Precipitation)
+  # This gives it proper names
+  names(df) <-
+    c("RecordID",
+      "ConditionsPrecipitation")
+  
+  # This removes the comma separated values in the conditions column
+  df2 <- df %>%
+    mutate(ConditionsPrecipitation =
+             strsplit(as.character(ConditionsPrecipitation), ",")) %>%
+    unnest(ConditionsPrecipitation)
+  
+  # If I want to sort the data
+  # sort.df2 <-
+  #   df2[order(df2$RecordID, decreasing = FALSE), ]
+  # View(sort.df2)
+  
+  return(df2)
+}
+
+table_2 <- makeTable2(bird.strikes)
+# To free up memory I removed bird.strikes since it's no longer needed.
+rm(bird.strikes)
+```
+
+Now that the data is extracted I can add it to a database.
+
+With the data loaded, and an active database connection to the SQLite database, I can write the data by specifying the connection, the name of the table, and the name of the data frame that contains the data to be persisted.
+
+```{r add tables to the database}
+# Add the second table to the database
+dbWriteTable(birdstrike, "table2", table_2)
+
+# confirm tables
+dbListTables(birdstrike)
+```
+
+Now the database birdstrike has all of the required information in it with proper relationships and normalized to 3NF.
+
+##Extracting the data
+###Task 2:
+Write a SQL SELECT statement that counts the number of incidents where the incident reported fog during the incident.
+
+Standard SQL syntax is available, though as in other contexts where SQL is embedded in strings, I need to consider the usage of quotes. Often it is simplest to surround the queries with double quotes so that strings in a SQL statement can be surrounded in single quotes.
+```{r get fog info}
+# This uses basic SQL syntax, I selected ConditionsPrecipitation and count. I 
+# defined the count as BirdStrikes and this information is in table2.  Since this is
+# text, I used where and like to count.
+dbGetQuery(birdstrike, "SELECT ConditionsPrecipitation, count(*)
+           AS BirdStrikes
+           FROM table2 
+           WHERE ConditionsPrecipitation 
+           LIKE 'fog'")
+```
+
+###Task 3:
+Write a function called CountIncidents(AircraftType) that accepts an aircraft type and returns the number of birdstrikes incidents for the aircraft type.
+```{r CountIncidents}
+CountIncidents <- function(x) {
+  # This function is the same as task 2, however, I needed to use the fn$ function of
+  # package "sqldf" to get the variable "x" to work.
+  fn$dbGetQuery(
+    birdstrike,
+    "SELECT AircraftType, count(*)
+    AS BirdStrikes
+    FROM table1
+    WHERE AircraftType
+    LIKE ('$x')"
+  )
+}
+
+# This calls the function with argument in quotes
+CountIncidents("Airplane")
+```
+
+###Task 4:
+Write a function called Incidents(Airline) that accepts an airline and returns a data frame that contains all incidents for that airline. Limit the columns to: AirportName, AircraftModel, and Flight Date.
+```{r Incidents}
+Incidents <- function(x) {
+  # This is similar to the other tasks, but I selected 3 columns and did not use 
+  # count. 
+  fn$dbGetQuery(
+    birdstrike,
+    "SELECT AirportName, AircraftMakeModel, FlightDate
+    FROM table1
+    WHERE AircraftAirlineOperator
+    LIKE ('$x')"
+  )
+}
+
+# This calls the function with argument in quotes
+airlineIncidents.df <- Incidents("CONTINENTAL AIRLINES")
+
+# This shows the summary and the first six rows of the data
+summary(airlineIncidents.df)
+head(airlineIncidents.df)
+```
+
+###Task 5:
+Write a function called CountIncidentsByAirline() that creates a data frame where the first column is a name of an Aircraft and the second column is the total number of incidents the Airline had.
+```{r CountIncidentsByAirline}
+CountIncidentsByAirline <- function(x) {
+  # This function takes an airline and returns a data frame with the total number of 
+  # bird strikes for an aircraft type.  I use the database select to get the total 
+  # number of aircrafts that had an incident for an airline.  Then I take that data
+  # and put it in a new data frame table.  Then I return the results.
+  
+  # This gets the aircraft make for the specified airline
+  df <- fn$dbGetQuery(
+    birdstrike,
+    "SELECT AircraftMakeModel
+    FROM table1
+    WHERE AircraftAirlineOperator
+    LIKE ('$x')"
+  )
+  
+  #This takes the info above and puts it into a table
+  df.num <-
+    as.data.frame(table(df))
+  names(df.num) <- c("AircraftMakeModel", "BirdStrikes")
+  
+  # This returns the table as a data frame
+  return(df.num)
+}
+# This calls the function with argument in quotes
+airlineIncidentsCount.df <-
+  CountIncidentsByAirline("CONTINENTAL AIRLINES")
+
+head(airlineIncidentsCount.df)
+
+```
+
+
+

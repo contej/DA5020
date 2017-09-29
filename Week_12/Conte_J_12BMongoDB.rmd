@@ -1,0 +1,161 @@
+---
+title: 'Assignment 12 B: MongoDB'
+author: "Joshua Conte"
+date: "July 30, 2017"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#NoSQL Data Storage & Retrieval using MongoDB
+For this assignment, I need to learn how to:
+
+* install the MongoDB server
+* insert data into MongoDB
+* fetch data from MongoDB
+
+#Tasks
+Before I begin the tasks I need to configure R studio with the parameters below:
+```{r Configure RStudio}
+# clears the console in RStudio
+cat("\014") 
+
+# clears environment
+rm(list = ls())  
+
+# Set working directory
+setwd("C:/R/DA5020/Week_12/Assignment_12_B")
+```
+
+##Task 1
+Install the MongoDB server on your system. Follow the step-by-step Guide to Install MongoDB from the official website as listed below or follow the instructions in Chapter 14 of the book.
+
+###a. Determine which MongoDB build you need.
+I downloaded mongodb-win32-x86_64-2008plus-ssl-3.4.6-signed.msi and ran it as an executable.
+
+###b. Set up the MongoDB environment.
+MongoDB requires a data directory to store all data. MongoDB's default data directory path is the absolute path C:/data/db.  This can be made by opening the command prompt and typing "md  C:/data/db". I created mine as shown in the screen shot below (I did not take a screenshot when I created it in the command prompt, but this is the result):
+
+![Screenshot of the data folder](data.jpg)\
+
+
+###c. Start MongoDB.
+To start MongoDB, run mongod.exe, from the Command Prompt:
+
+![Screenshot of MongoDB](start.jpg)\
+
+
+This starts the main MongoDB database process. The waiting for connections message in the console output indicates that the mongod.exe process is running successfully.
+
+##Task 2
+Insert the Bird Strikes.csv file into MongoDB and use the export command to display the inserted file. Note : Remember to reshape the data by removing the dots (periods) from the column names before inserting the data into MongoDB.
+```{r Importing data}
+# Load the data
+# I also added NA to all blank cells to make it easier to analyze and
+# stringsAsFactors = FALSE so I can remove levels from the data.
+if (!exists("birdStrikes.df")) {
+  birdStrikes.df <-
+    read.csv(
+      unz("Bird Strikes.zip", "Bird Strikes.csv"),
+      header = TRUE,
+      na.strings = c("", "NA"),
+      stringsAsFactors = FALSE,
+      sep = ","
+    )
+}
+
+# Remove dots from names
+names(birdStrikes.df) <- gsub("\\.", "", names(birdStrikes.df))
+names(birdStrikes.df)
+
+# Load MongoDB in R
+library(mongolite)
+
+# Load data into MongoDB
+mongoBirdStrikes<- mongo("birdStrikes.df")
+str(mongoBirdStrikes)
+
+# The insert function is used to insert data. The inserted data is a JSON object.
+mongoBirdStrikes$insert(birdStrikes.df)
+
+# The inserted data can be viewed using the export function. Data is exported as a 
+# binary file.
+mongoBirdStrikes$export(file("birdStrikesData.txt"))
+```
+
+Below is a screenshot of the exported data:
+
+![Screenshot of exported data](export.jpg)\
+
+
+##Task 3
+Perform the following fetch operations:
+
+###a. Fetch the unique airport names from the database
+I can us the distinct function to find unique instances of any particular column in the dataset.
+```{r task 3a}
+querya<-mongoBirdStrikes$distinct("AirportName")
+
+# This shows a summary of the results:
+summary(querya)
+
+# This shows the first six lines of the results:
+head(querya)
+```
+
+###b. Count the number of records where originState equals "New Jersey"
+The count function is used to count the number of instances matching specific criteria:
+```{r task 3b}
+queryb<-mongoBirdStrikes$count('{"OriginState":"New Jersey"}')
+
+# This prints the result with context:
+print(paste("The number of records where originState equals 'New Jersey' is", queryb))
+```
+
+###c. Fetch the data with conditionsPrecipitation being fog and sort the data in descending order of recordId.
+The find function can be used to find all the instances matching specific criteria.  The sort function can sort the fetched data in ascending or descending order with value 1 for ascending and -1 for descending:
+```{r task 3c}
+queryc<-mongoBirdStrikes$find('{"ConditionsPrecipitation":"Fog"}', sort='{"RecordID":-1}')
+
+# This shows a summary of the results:
+summary(queryc)
+
+# This shows the first six lines of the results:
+head(queryc)
+```
+
+###d. Fetch data.
+Fetch only the following columns for aircraftAirlineOperator: 
+"AMERICAN AIRLINES" and "CONTINENTAL AIRLINES"
+
+1. recordId
+2. originState
+3. aircraftAirlineOperator
+4. airportName
+
+I began by breaking the find argument into two parts, query and fields. The query section is used as the search criteria.  In order to find two things in the same column, I needed to use $in in the query section as shown below.
+
+The fields section is used to specify the column(s) to display. To display any column write the column name and keep the value as 1. If a column does not need to be displayed, keep the value as 0. By default any column name not mentioned in field argument is not displayed. The column name _id is the default primary key for the record. To remove this column from the result just add another argument with value of _id 0.
+```{r task 3d}
+queryd <- mongoBirdStrikes$find(
+  query = '{"AircraftAirlineOperator" :
+  { "$in" : [ "AMERICAN AIRLINES",
+  "CONTINENTAL AIRLINES"]  } }',
+  fields = '{"RecordID":1,"OriginState":1,
+  "AircraftAirlineOperator":1,"AirportName":1, "_id":0}'
+)
+
+# This shows a summary of the results:
+summary(queryd)
+
+# This shows the first six lines of the results:
+head(queryd)
+```
+
+
+```{r delete the inserted data, include=FALSE}
+#This will remove the data incase I need to rerun this program
+mongoBirdStrikes$drop()
+```

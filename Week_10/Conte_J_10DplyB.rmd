@@ -1,0 +1,179 @@
+---
+title: "Assignment 10Dply B: Comparison between dplyr and SQL SELECT"
+author: "Joshua Conte"
+date: "July 16, 2017"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#Comparison between dplyr and SQL SELECT
+For this assignment, I need to: extract aggregated statistics using dplyr and compare dplyr to SQL SELECT.
+
+##Setting up R
+First I configure R studio with the parameters below:
+```{r Configure RStudio}
+# clears the console in RStudio
+cat("\014") 
+
+# clears environment
+rm(list = ls())  
+
+# Set working directory
+setwd("C:/R/DA5020/Week_10/")
+
+# Load required packages
+library(dplyr)
+```
+
+#Begin Assignment 10Dply B
+##Assignment Tasks
+###Task 1
+Revisit your Bird Strike database created for the last assignment. Connect to the database.
+```{r Task 1}
+# connect to the database file using src_sqlite
+birdstrike<- src_sqlite("birdstrike.db", create = F)
+
+# List the tables in the database
+src_tbls(birdstrike)
+```
+
+**Querying the database** \
+dplyr translates the R code we write to SQL code. Inorder to connect to the tables, I needed to use 'tbl', as shown below.
+
+For table1:
+```{r table1}
+# Load table1
+table1 <- tbl(birdstrike,"table1")
+
+# This shows the first 3 rows of table1
+head(table1,3)
+```
+
+For table2:
+```{r table2}
+# Load table2
+table2 <- tbl(birdstrike,"table2")
+
+# This shows the first 3 rows of table2
+head(table2,3)
+```
+
+###Task 2
+Write a dpyr statement that counts the number of incidents where the incident reported fog during the incident.
+
+I can pipe dplyr operations together with %>%. The pipeline %>% takes the output from the left-hand side of the pipe as the first argument to the function on the right hand side.
+```{r Task 2}
+# Grouped by ConditionsPrecipitation and found the count for each 
+# ConditionsPrecipitation type as BirdStrikes.  Then filtered for Fog.
+table2%>%group_by(ConditionsPrecipitation)%>% 
+  summarize(BirdStrikes=n())%>%      
+  filter(ConditionsPrecipitation=='Fog')
+```
+
+###Task 3
+Write a function **CountIncidents(aircraftType)** that accepts an aircraft type and
+returns the number of bird strike incidents for the aircraft type.
+```{r Task 3}
+CountIncidents <- function(x) {
+  # This pipes dplyr operations together with %>%. 
+  # Grouped by AircraftType, then found the count for each AircraftType type as 
+  # BirdStrikes. Then filtered for 'x'.
+  table1 %>% group_by(AircraftType) %>%
+    summarize(BirdStrikes = n()) %>%
+    filter(AircraftType == x)
+}
+
+# This calls the function with argument in quotes
+CountIncidents("Helicopter")
+```
+
+###Task 4
+Write a function **Incidents(Airline)** that accepts an airline and returns a dataframe that contains all incidents for that airline. Limit the columns to: **AirportName**, **AircraftModel**, and **FlightDate**.
+```{r Task 4}
+Incidents <- function(x) {
+  # THis function accepts an airline and returns a dataframe that contains all
+  # incidents for that airline. Limiting the columns to: AirportName, AircraftModel,
+  # and FlightDate
+  
+  # This pipes dplyr operations together with %>%.
+  # Select AircraftAirlineOperator, AirportName, AircraftMakeModel, FlightDate then
+  # filtered for AircraftAirlineOperator 'x'. Ungrouped AircraftAirlineOperator,
+  # then arrange by date oldest to newest
+  table1 %>% select(AircraftAirlineOperator,
+                    AirportName,
+                    AircraftMakeModel,
+                    FlightDate) %>%
+    filter(AircraftAirlineOperator == x) %>%
+    ungroup() %>%
+    select(-AircraftAirlineOperator) %>%
+    arrange(FlightDate)
+}
+
+# This calls the function with argument in quotes
+Incidents.df <- Incidents("CONTINENTAL AIRLINES")
+
+# Make it a data frame
+Incidents.df <- data.frame(Incidents.df)
+
+# Summarize the data frame
+summary(Incidents.df)
+
+# Show first three lines
+head(Incidents.df, 3)
+```
+
+###Task 5
+Write a function **CountIncidentsByAirline()** that creates a data frame where the first column is a name of an Aircraft and the second column is the total number of incidents the Airline had.
+```{r Task 5}
+CountIncidentsByAirline <- function(x) {
+  # THis function accepts an airline and returns a dataframe that contains all 
+  # incidents for that airline. Limiting the columns to: AirportName, AircraftModel, 
+  # and FlightDate
+  
+  # This pipes dplyr operations together with %>%. 
+  # Select AircraftAirlineOperator, AircraftMakeModel, then filtered for 
+  # AircraftAirlineOperator 'x', ungrouped AircraftAirlineOperator.
+  # Then group by AircraftMakeModel and summarize by birdstikes and
+  # order data by largest to smallest birdstrikes.
+  table1 %>% select(AircraftMakeModel) %>%
+  group_by(AircraftMakeModel) %>%
+  summarize(BirdStrikes = n()) %>%
+  arrange(desc(BirdStrikes)) 
+}
+
+# This calls the function with argument in quotes
+IncidentsByAirline.df <- CountIncidentsByAirline()
+
+# Make it a data frame 
+IncidentsByAirline.df <- data.frame(IncidentsByAirline.df)
+
+# Summarize the data frame
+summary(IncidentsByAirline.df)
+
+# Show first three lines
+head(IncidentsByAirline.df,3)
+```
+
+###Task 6:
+Use **show_query()** to extract the SQL statement from one of your dplyr operations, then compare it with the corresponding SQL statement you wrote last week. State your preference for retrieving data from a large data set.\
+
+I selected the statement from task2, a statement that counts the number of incidents where the incident reported fog during the incident:
+```{r Task 6}
+
+fog_dplyr<-table2%>%group_by(ConditionsPrecipitation)%>% 
+  summarize(BirdStrikes=n())%>%      
+  filter(ConditionsPrecipitation=='Fog')
+
+show_query(fog_dplyr)
+```
+**SQL statement wrote last week:** \
+SELECT ConditionsPrecipitation, count(*) AS BirdStrikes \
+FROM table2 \
+WHERE ConditionsPrecipitation \
+LIKE 'fog' \
+
+
+The statements are similar, however, the one I used last week was a little smaller since I utilized the LIKE statement.  Overall, I prefer to use SQL over dplyr because there is so much more support for SQL.  It took me a while to find the basics of dplyr, but for SQL, it's just a quick search on stackoverflow.  Plus, SQL is used in a lot of different places, so it's easier to port the code from one place to another.
